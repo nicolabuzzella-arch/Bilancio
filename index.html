@@ -945,48 +945,61 @@ $("#jsonin").onchange=e=>{
   r.readAsText(f); e.target.value="";
 };
 
-/* icona home screen generata al volo: gemma sfaccettata gialla su nero, no lettere */
+/* icona home screen generata al volo: sfera "liquid glass" gialla su nero */
 (function icon(){
   try{
     const S=512, c=document.createElement("canvas"); c.width=c.height=S; const x=c.getContext("2d");
-    const cx=S*0.5;
+    const cx=S*0.5, cy=S*0.5, R=S*0.285, ocx=cx, ocy=S*0.495;
 
-    /* fondo nero opaco con leggerissima profondità */
-    const bg=x.createRadialGradient(cx,S*0.40,S*0.05,cx,S*0.5,S*0.78);
-    bg.addColorStop(0,"#1a1a1a"); bg.addColorStop(1,"#000000");
+    /* fondo nero con leggerissima profondità */
+    const bg=x.createRadialGradient(cx,S*0.38,S*0.04,cx,cy,S*0.78);
+    bg.addColorStop(0,"#161616"); bg.addColorStop(1,"#000000");
     x.fillStyle=bg; x.fillRect(0,0,S,S);
-
-    /* filo sottile che definisce il bordo */
-    x.strokeStyle="rgba(255,255,255,.12)"; x.lineWidth=S*0.010;
+    x.strokeStyle="rgba(255,255,255,.10)"; x.lineWidth=S*0.010;
     x.strokeRect(x.lineWidth/2,x.lineWidth/2,S-x.lineWidth,S-x.lineWidth);
 
-    /* punti della gemma: tavola in alto, girdle largo al centro, culet in basso */
-    const topY=S*0.230, midY=S*0.470, botY=S*0.775;
-    const topL=[cx-S*0.115,topY], topR=[cx+S*0.115,topY];
-    const midL=[cx-S*0.255,midY], midR=[cx+S*0.255,midY];
-    const bot=[cx,botY];
-
-    /* alone dorato soffuso dietro la gemma */
+    /* ombra morbida sotto la sfera */
     x.save();
-    x.shadowColor="rgba(255,214,10,.45)"; x.shadowBlur=S*0.085;
-    x.fillStyle="rgba(255,214,10,.001)";
-    x.beginPath(); x.moveTo(...topL); x.lineTo(...topR); x.lineTo(...midR); x.lineTo(...bot); x.lineTo(...midL); x.closePath(); x.fill();
+    x.filter="blur("+Math.round(S*0.045)+"px)";
+    x.fillStyle="rgba(0,0,0,.55)";
+    x.beginPath(); x.ellipse(ocx,ocy+R*0.88,R*0.72,R*0.20,0,0,Math.PI*2); x.fill();
     x.restore();
 
-    /* tre sfaccettature, tono più caldo scendendo verso il basso */
-    const facet=(pts,fill)=>{
-      x.beginPath(); x.moveTo(...pts[0]);
-      for(let i=1;i<pts.length;i++) x.lineTo(...pts[i]);
-      x.closePath(); x.fillStyle=fill; x.fill();
-      x.strokeStyle="rgba(0,0,0,.45)"; x.lineWidth=S*0.006; x.stroke();
-    };
-    facet([topL,topR,midL],"#FFE066");
-    facet([topR,midR,midL],"#FFC300");
-    facet([midL,midR,bot],"#E39A00");
+    /* alone dorato diffuso dietro il vetro */
+    x.save();
+    x.filter="blur("+Math.round(S*0.065)+"px)";
+    x.fillStyle="rgba(255,197,0,.50)";
+    x.beginPath(); x.arc(ocx,ocy,R*1.05,0,Math.PI*2); x.fill();
+    x.restore();
 
-    /* glint: riflesso netto sulla faccetta più chiara */
-    x.strokeStyle="rgba(255,255,255,.75)"; x.lineWidth=S*0.012; x.lineCap="round";
-    x.beginPath(); x.moveTo(cx-S*0.055,topY+S*0.028); x.lineTo(cx+S*0.02,topY+S*0.09); x.stroke();
+    /* corpo della sfera di vetro: gradiente radiale, luce da alto-sinistra */
+    const gg=x.createRadialGradient(ocx-R*0.42,ocy-R*0.48,R*0.04,ocx,ocy,R*1.08);
+    gg.addColorStop(0,"#FFF6D8"); gg.addColorStop(.28,"#FFDA1E");
+    gg.addColorStop(.66,"#F2A900"); gg.addColorStop(1,"#8F5E00");
+    x.beginPath(); x.arc(ocx,ocy,R,0,Math.PI*2); x.fillStyle=gg; x.fill();
+
+    /* bordo vetro: chiaro sopra, in ombra sotto */
+    const rim=x.createLinearGradient(ocx,ocy-R,ocx,ocy+R);
+    rim.addColorStop(0,"rgba(255,255,255,.85)"); rim.addColorStop(.5,"rgba(255,255,255,.08)"); rim.addColorStop(1,"rgba(0,0,0,.40)");
+    x.lineWidth=S*0.012; x.strokeStyle=rim;
+    x.beginPath(); x.arc(ocx,ocy,R-x.lineWidth/2,0,Math.PI*2); x.stroke();
+
+    /* riflesso speculare principale (glass highlight) */
+    x.save();
+    x.filter="blur("+Math.round(S*0.02)+"px)";
+    x.translate(ocx-R*0.30,ocy-R*0.42); x.rotate(-0.55);
+    const hi=x.createLinearGradient(0,-R*0.32,0,R*0.32);
+    hi.addColorStop(0,"rgba(255,255,255,.95)"); hi.addColorStop(1,"rgba(255,255,255,0)");
+    x.fillStyle=hi;
+    x.beginPath(); x.ellipse(0,0,R*0.36,R*0.15,0,0,Math.PI*2); x.fill();
+    x.restore();
+
+    /* riflesso secondario, tenue, in basso a destra */
+    x.save();
+    x.filter="blur("+Math.round(S*0.014)+"px)";
+    x.fillStyle="rgba(255,255,255,.16)";
+    x.beginPath(); x.ellipse(ocx+R*0.42,ocy+R*0.50,R*0.16,R*0.07,0.4,0,Math.PI*2); x.fill();
+    x.restore();
 
     const l=document.createElement("link"); l.rel="apple-touch-icon"; l.href=c.toDataURL("image/png");
     document.head.appendChild(l);
