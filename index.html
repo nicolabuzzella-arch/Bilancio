@@ -945,20 +945,36 @@ $("#jsonin").onchange=e=>{
   r.readAsText(f); e.target.value="";
 };
 
-/* icona home screen generata al volo */
+/* icona home screen generata al volo: monogramma nero corporate */
 (function icon(){
   try{
-    const c=document.createElement("canvas"); c.width=c.height=180; const x=c.getContext("2d");
-    x.fillStyle="#000"; x.fillRect(0,0,180,180);
-    const g=x.createLinearGradient(0,0,180,180); g.addColorStop(0,"#0A84FF"); g.addColorStop(1,"#BF5AF2");
-    x.strokeStyle=g; x.lineWidth=15; x.lineCap="round";
-    x.beginPath(); x.arc(90,90,54,-Math.PI/2,Math.PI*1.05); x.stroke();
-    x.fillStyle="#fff"; x.font="600 46px -apple-system,system-ui,sans-serif"; x.textAlign="center"; x.textBaseline="middle";
-    x.fillText("₣",90,92);
+    const S=512, c=document.createElement("canvas"); c.width=c.height=S; const x=c.getContext("2d");
+
+    /* fondo nero opaco con leggerissima profondità (niente colori vivaci) */
+    const bg=x.createRadialGradient(S*0.5,S*0.36,S*0.05,S*0.5,S*0.5,S*0.75);
+    bg.addColorStop(0,"#1c1c1e"); bg.addColorStop(1,"#000000");
+    x.fillStyle=bg; x.fillRect(0,0,S,S);
+
+    /* filo sottile che definisce il bordo, coerente col resto dell'UI */
+    x.strokeStyle="rgba(255,255,255,.14)"; x.lineWidth=S*0.010;
+    x.strokeRect(x.lineWidth/2,x.lineWidth/2,S-x.lineWidth,S-x.lineWidth);
+
+    /* monogramma "B" in argento/bianco, netto e istituzionale */
+    const lg=x.createLinearGradient(0,S*0.24,0,S*0.76);
+    lg.addColorStop(0,"#ffffff"); lg.addColorStop(1,"#d8d8dc");
+    x.fillStyle=lg;
+    x.font="700 "+Math.round(S*0.50)+"px -apple-system,'SF Pro Display',system-ui,sans-serif";
+    x.textAlign="center"; x.textBaseline="middle";
+    x.fillText("B",S/2,S*0.518);
+
+    /* trattino sotto il monogramma, richiama l'idea di "bilancio in pareggio" */
+    x.strokeStyle="rgba(255,255,255,.55)"; x.lineWidth=S*0.018; x.lineCap="round";
+    x.beginPath(); x.moveTo(S*0.37,S*0.735); x.lineTo(S*0.63,S*0.735); x.stroke();
+
     const l=document.createElement("link"); l.rel="apple-touch-icon"; l.href=c.toDataURL("image/png");
     document.head.appendChild(l);
     const m={name:"Bilancio",short_name:"Bilancio",display:"standalone",background_color:"#000000",theme_color:"#000000",start_url:".",
-      icons:[{src:c.toDataURL("image/png"),sizes:"180x180",type:"image/png"}]};
+      icons:[{src:c.toDataURL("image/png"),sizes:S+"x"+S,type:"image/png"}]};
     const ml=document.createElement("link"); ml.rel="manifest";
     ml.href=URL.createObjectURL(new Blob([JSON.stringify(m)],{type:"application/manifest+json"}));
     document.head.appendChild(ml);
