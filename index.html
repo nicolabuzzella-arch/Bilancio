@@ -321,6 +321,27 @@ function shiftPeriod(key,n){
 /* ---------------- stato ---------------- */
 let DB=null, TAB="over", PERIOD=null, TXFILTER="all", TXQ="", pending=null;
 
+/* regole di categorizzazione automatica: [pattern regex, gruppo, categoria].
+   Usate sia per il seed di un DB nuovo sia (in boot) per aggiungere le
+   regole mancanti a chi ha già un DB, senza toccare le regole personali. */
+const DEFAULT_RULES=[
+  ["coop|migros|denner|aldi|lidl|manor food|volg|spar|iperal","spese","Spesa"],
+  ["esselunga|carrefour|conad|iper\\b","spese","Spesa"],
+  ["ristorante|pizzeria|osteria|trattoria|mcdonald|burger|starbucks|bar |caffè|cafe|glovo|deliveroo|uber ?eats|just ?eat","spese","Ristoranti e bar"],
+  ["sbb|cff|ffs|trenord|trenitalia|italo|tpl|autopostale|postauto|autostrade|telepass|\\batm\\.it\\b|amat |uber(?! eats)|bolt|free ?now|lime|mogo|dott |easypark|parcheggio|parking","spese","Trasporti"],
+  ["socar|agip|eni\\b|shell|esso|tamoil|migrol|avia|q8|benzin","spese","Carburante"],
+  ["swisscom|salt|sunrise|wingo|yallo|iliad|vodafone|tim ","bollette","Telefono e internet"],
+  ["netflix|spotify|disney|icloud|apple\\.com/bill|amazon prime|youtube|now ?tv|anthropic|openai|chatgpt|claude\\.ai|playstation|xbox|nintendo|google ?one|dropbox|^apple$","bollette","Abbonamenti"],
+  ["assura|css|helsana|swica|sanitas|concordia|visana|groupe mutuel","bollette","Cassa malati"],
+  ["axa|zurich|allianz|mobiliare|generali|baloise|vaudoise","bollette","Assicurazioni"],
+  ["affitto|locazione|miete|loyer","bollette","Affitto"],
+  ["farmacia|apotheke|pharmacie|studio medico|dentista|ottica|serenis|unobravo|mindler|betterhelp","spese","Salute"],
+  ["padel|playtomic|palestra|fitness|gym|piscina","spese","Sport"],
+  ["amazon|zalando|galaxus|digitec|ikea|decathlon|media ?markt|interdiscount|vinted","spese","Shopping"],
+  ["hotel|booking|airbnb|easyjet|swiss air|ryanair|flixbus|albergo","spese","Viaggi"],
+  ["cinema|betfair|snai|sisal|eurobet|bwin|pokerstars","spese","Tempo libero"],
+  ["stipendio|salaire|lohn|salary|salario","entrate","Stipendio"]
+];
 function seed(){
   const c=(n,b,col)=>({id:uid(),name:n,budget:b||0,color:col});
   return {
@@ -334,23 +355,7 @@ function seed(){
       debiti:[]
     },
     paid:{}, tx:[], mapping:null,
-    rules:[
-      ["coop|migros|denner|aldi|lidl|manor food|volg|spar","spese","Spesa"],
-      ["esselunga|carrefour|conad|iper","spese","Spesa"],
-      ["ristorante|pizzeria|osteria|trattoria|mcdonald|burger|starbucks|bar |caffè|cafe","spese","Ristoranti e bar"],
-      ["sbb|cff|ffs|trenord|trenitalia|tpl|autopostale|postauto","spese","Trasporti"],
-      ["socar|agip|eni|shell|esso|tamoil|migrol|avia|q8|benzin","spese","Carburante"],
-      ["swisscom|salt|sunrise|wingo|yallo|iliad|vodafone|tim ","bollette","Telefono e internet"],
-      ["netflix|spotify|disney|icloud|apple.com/bill|amazon prime|youtube","bollette","Abbonamenti"],
-      ["assura|css|helsana|swica|sanitas|concordia|visana|groupe mutuel","bollette","Cassa malati"],
-      ["axa|zurich|allianz|mobiliare|generali|baloise|vaudoise","bollette","Assicurazioni"],
-      ["affitto|locazione|miete|loyer","bollette","Affitto"],
-      ["farmacia|apotheke|pharmacie|studio medico|dentista|ottica","spese","Salute"],
-      ["padel|palestra|fitness|gym|piscina","spese","Sport"],
-      ["amazon|zalando|galaxus|digitec|ikea|decathlon|media ?markt|interdiscount","spese","Shopping"],
-      ["hotel|booking|airbnb|easyjet|swiss air|ryanair|flixbus","spese","Viaggi"],
-      ["stipendio|salaire|lohn|salary|salario","entrate","Stipendio"]
-    ].map(r=>({id:uid(),pat:r[0],group:r[1],cat:r[2]}))
+    rules:DEFAULT_RULES.map(r=>({id:uid(),pat:r[0],group:r[1],cat:r[2]}))
   };
 }
 function allCats(){ const o=[]; for(const g of GROUPS) for(const c of DB.groups[g.k]) o.push({...c,group:g.k}); return o; }
@@ -367,6 +372,12 @@ function actualGroup(key,gk){
   const ids=new Set(DB.groups[gk].map(c=>c.id));
   return txOf(key).filter(t=>ids.has(t.cat)).reduce((s,t)=>s+Math.abs(t.amount),0);
 }
+/* entrate/uscite reali del periodo, categorizzate o no: usate per i totali
+   in cima (Entrate/Uscite/Saldo, anello budget) così un movimento importato
+   e non ancora categorizzato non sparisce dai conti — solo dal dettaglio
+   per categoria, che per natura può contare solo ciò che è categorizzato */
+function actualIncomeAll(key){ return txOf(key).filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0); }
+function actualExpenseAll(key){ return txOf(key).filter(t=>t.amount<0).reduce((s,t)=>s-t.amount,0); }
 function budgetGroup(gk){ return DB.groups[gk].reduce((s,c)=>s+(+c.budget||0),0); }
 function openingOf(key){
   const {start}=periodRange(key), s=ymd(start);
@@ -435,9 +446,12 @@ function render(){
 
 function vOver(){
   const k=PERIOD;
-  const bIn=budgetGroup("entrate"), aIn=actualGroup(k,"entrate");
+  /* totali reali del periodo (categorizzati o no): quello che risulta
+     davvero entrato/uscito dal conto, per non nascondere soldi veri solo
+     perché un movimento non è stato ancora assegnato a una categoria */
+  const bIn=budgetGroup("entrate"), aIn=actualIncomeAll(k);
   const outs=GROUPS.filter(g=>g.out).map(g=>({...g,b:budgetGroup(g.k),a:actualGroup(k,g.k)}));
-  const bOut=outs.reduce((s,g)=>s+g.b,0), aOut=outs.reduce((s,g)=>s+g.a,0);
+  const bOut=outs.reduce((s,g)=>s+g.b,0), aOut=actualExpenseAll(k);
   const open=openingOf(k), rest=bOut-aOut, dl=daysLeft(k);
   const pct=bOut>0?(bOut-aOut)/bOut:0;
   const col=rest<0?"var(--red)":pct<.2?"var(--orange)":"var(--green)";
@@ -706,13 +720,105 @@ function buildRows(rows,map){
   }
   return out;
 }
-const txHash=t=>fnv(`${t.date}|${t.amount.toFixed(2)}|${t.desc.toLowerCase().replace(/\s+/g," ").slice(0,50)}`);
+/* nota in coda solo se presente: così l'hash di chi importava già prima
+   (senza nota) resta identico e non genera doppioni fantasma */
+const txHash=t=>fnv(`${t.date}|${t.amount.toFixed(2)}|${t.desc.toLowerCase().replace(/\s+/g," ").slice(0,50)}${t.note?"|"+t.note.toLowerCase().slice(0,40):""}`);
+/* due spese reali diverse possono avere stessa data/importo/descrizione
+   (due pedaggi identici lo stesso giorno, due caffè allo stesso bar...): la
+   prima occorrenza tiene l'hash "semplice" (compatibile con le versioni
+   precedenti), le successive vengono differenziate per non sparire come
+   falsi doppioni né tra loro né a un reimport dello stesso file */
+function hashRows(rows){
+  const seenInBatch=new Map();
+  return rows.map(r=>{
+    const base=txHash(r), n=seenInBatch.get(base)||0;
+    seenInBatch.set(base,n+1);
+    return {...r,hash:n===0?base:fnv(base+"#"+n)};
+  });
+}
+const previewRows=rowsp=>rowsp.slice(0,5).map(p=>`<tr><td>${p.date}</td><td>${esc(p.desc.slice(0,34))}</td><td>${p.amount.toFixed(2)}</td></tr>`).join("")||`<tr><td colspan="3">Nessuna riga valida con questa combinazione</td></tr>`;
+
+/* ---------------- export Yuh: formato riconosciuto, righe interpretate senza indovinare colonne ---------------- */
+function yuhIdx(headers){
+  const H=headers.map(h=>String(h||"").trim().toUpperCase());
+  const find=name=>H.indexOf(name);
+  return {date:find("DATE"),type:find("ACTIVITY TYPE"),name:find("ACTIVITY NAME"),debit:find("DEBIT"),credit:find("CREDIT"),locality:find("LOCALITY")};
+}
+function isYuhFormat(headers){
+  const i=yuhIdx(headers);
+  return i.date>-1&&i.type>-1&&i.name>-1&&i.debit>-1&&i.credit>-1;
+}
+/* tipi di movimento Yuh che non sono spese/entrate reali:
+   punti bonus (nessun controvalore), cambi valuta automatici/manuali per
+   alimentare il conto in un'altra valuta (spostano soldi tra le proprie
+   "tasche", il costo vero è già nel movimento CARD_/PAYMENT_TRANSACTION),
+   ordini di pagamento rifiutati (i soldi non si sono mai mossi) */
+const YUH_SKIP_TYPES=new Set(["REWARD_RECEIVED","BANK_AUTO_ORDER_EXECUTED","BANK_ORDER_EXECUTED","PAYMENT_ORDER_REJECTED"]);
+function buildYuhRows(rows,idx){
+  const out=[];
+  for(let i=1;i<rows.length;i++){
+    const r=rows[i]; if(!r||!r.length) continue;
+    const type=String(r[idx.type]||"").trim().toUpperCase();
+    if(YUH_SKIP_TYPES.has(type)) continue;
+    const date=dat(r[idx.date]); if(!date) continue;
+    const credit=num(r[idx.credit]), debit=num(r[idx.debit]);
+    const amount = credit!=null&&credit!==0 ? Math.abs(credit) : debit!=null&&debit!==0 ? -Math.abs(debit) : null;
+    if(amount==null||amount===0) continue;
+    let desc=String(r[idx.name]||"").replace(/["]/g,"").replace(/\s+/g," ").trim();
+    if(!desc) desc = type==="INVEST_ORDER_EXECUTED" ? "Investimento" : "Movimento";
+    const locality=idx.locality>-1 ? String(r[idx.locality]||"").replace(/["]/g,"").trim() : "";
+    const note = locality && type.startsWith("CARD_TRANSACTION") ? locality : "";
+    /* per questi due tipi conosciamo la categoria giusta con certezza, meglio
+       che indovinarla dal testo (es. "0,00235x Bitcoin" non matcha nessuna regola) */
+    const forceCat = type==="INVEST_ORDER_EXECUTED" ? {group:"risparmi",name:"Investimenti"}
+                    : type==="CARD_TRANSACTION_IN" ? {group:"entrate",name:"Rimborsi"} : null;
+    out.push({date,amount,desc:desc.slice(0,90),note,forceCat});
+  }
+  return out;
+}
+function sheetYuhPreview(){
+  const idx=yuhIdx(pending.rows[0]);
+  const rowsp=buildYuhRows(pending.rows,idx);
+  const totalRaw=pending.rows.length-1;
+  const skipped=totalRaw-rowsp.length;
+  openSheet(`
+    <h3>Export Yuh riconosciuto</h3>
+    <p class="sub">Formato rilevato in automatico: uso "Attività" per data/descrizione/importo ed escludo i movimenti che non sono spese o entrate reali (punti bonus, cambi valuta automatici, ordini rifiutati) — ${skipped} righe su ${totalRaw} scartate per questo.</p>
+    <div class="prev"><table><thead><tr><th>Data</th><th>Descrizione</th><th>Importo</th></tr></thead><tbody id="pvbody">
+      ${previewRows(rowsp)}
+    </tbody></table></div>
+    <button class="btn primary" id="doimportyuh" style="margin-top:16px">Importa <span id="cntyuh">${rowsp.length}</span> movimenti</button>
+  `);
+  $("#doimportyuh").onclick=doImportYuh;
+}
+async function doImportYuh(){
+  const idx=yuhIdx(pending.rows[0]);
+  const rows=hashRows(buildYuhRows(pending.rows,idx));
+  const seen=new Set(DB.tx.map(t=>t.hash));
+  let added=0,dup=0;
+  for(const r of rows){
+    if(seen.has(r.hash)){dup++;continue;}
+    seen.add(r.hash);
+    const cat = r.forceCat ? (catByName(r.forceCat.group,r.forceCat.name)?.id||categorize(r.desc)) : categorize(r.desc);
+    DB.tx.push({id:uid(),date:r.date,amount:r.amount,desc:r.desc,cat,note:r.note||"",src:"csv",hash:r.hash,excl:false});
+    added++;
+  }
+  pending=null;
+  if(added){ const dates=DB.tx.map(t=>t.date).sort(); PERIOD=periodOf(dates[dates.length-1]); }
+  await save(); closeSheet(); TAB="tx"; TXFILTER="all"; render();
+  toast(`${added} movimenti importati${dup?` · ${dup} duplicati ignorati`:""}`);
+}
 
 function handleFile(file){
   const rd=new FileReader();
   rd.onload=()=>{
     const rows=parseCSV(String(rd.result));
     if(rows.length<2) return toast("Il file non contiene righe leggibili");
+    if(isYuhFormat(rows[0])){
+      pending={rows};
+      sheetYuhPreview();
+      return;
+    }
     pending={rows, map: DB.mapping || guess(rows[0])};
     sheetMapping();
   };
@@ -734,7 +840,7 @@ function sheetMapping(){
     <div class="field"><label>Accrediti</label><select data-map="credit">${opt(pending.map.credit)}</select></div>
     <div class="mini" style="margin-top:6px">Usa <b>Importo</b> se la banca mette tutto in una colonna con il segno, oppure <b>Addebiti</b> e <b>Accrediti</b> se sono separati.</div>
     <div class="prev"><table><thead><tr><th>Data</th><th>Descrizione</th><th>Importo</th></tr></thead><tbody id="pvbody">
-      ${preview.map(p=>`<tr><td>${p.date}</td><td>${esc(p.desc.slice(0,34))}</td><td>${p.amount.toFixed(2)}</td></tr>`).join("")||`<tr><td colspan="3">Nessuna riga valida con questa combinazione</td></tr>`}
+      ${previewRows(preview)}
     </tbody></table></div>
     <button class="btn primary" id="doimport" style="margin-top:16px">Importa <span id="cnt">${buildRows(pending.rows,pending.map).length}</span> movimenti</button>
   `);
@@ -742,19 +848,18 @@ function sheetMapping(){
     pending.map[s.dataset.map]=+s.value;
     const rowsp=buildRows(pending.rows,pending.map);
     $("#cnt").textContent=rowsp.length;
-    $("#pvbody").innerHTML=rowsp.slice(0,5).map(p=>`<tr><td>${p.date}</td><td>${esc(p.desc.slice(0,34))}</td><td>${p.amount.toFixed(2)}</td></tr>`).join("")||`<tr><td colspan="3">Nessuna riga valida con questa combinazione</td></tr>`;
+    $("#pvbody").innerHTML=previewRows(rowsp);
   });
   $("#doimport").onclick=doImport;
 }
 async function doImport(){
-  const rows=buildRows(pending.rows,pending.map);
+  const rows=hashRows(buildRows(pending.rows,pending.map));
   const seen=new Set(DB.tx.map(t=>t.hash));
   let added=0,dup=0;
   for(const r of rows){
-    const h=txHash(r);
-    if(seen.has(h)){dup++;continue;}
-    seen.add(h);
-    DB.tx.push({id:uid(),date:r.date,amount:r.amount,desc:r.desc,cat:categorize(r.desc),note:"",src:"csv",hash:h,excl:false});
+    if(seen.has(r.hash)){dup++;continue;}
+    seen.add(r.hash);
+    DB.tx.push({id:uid(),date:r.date,amount:r.amount,desc:r.desc,cat:categorize(r.desc),note:"",src:"csv",hash:r.hash,excl:false});
     added++;
   }
   DB.mapping={...pending.map}; pending=null;
@@ -1049,6 +1154,14 @@ $("#jsonin").onchange=e=>{
   if(!DB||!DB.groups){ DB=seed(); await Store.save(DB); }
   DB.settings=Object.assign({currency:"CHF",startDay:4,openingBalance:0},DB.settings||{});
   DB.paid=DB.paid||{}; DB.rules=DB.rules||[]; DB.tx=DB.tx||[];
+  /* aggiunge le regole di categorizzazione predefinite mancanti (senza toccare
+     quelle personali) a chi ha già un DB salvato da prima che esistessero */
+  const known=new Set(DB.rules.map(r=>r.pat.toLowerCase()));
+  let addedRules=false;
+  for(const r of DEFAULT_RULES){
+    if(!known.has(r[0].toLowerCase())){ DB.rules.push({id:uid(),pat:r[0],group:r[1],cat:r[2]}); addedRules=true; }
+  }
+  if(addedRules) await save();
   PERIOD=periodOf(ymd(new Date()));
   render();
 })();
