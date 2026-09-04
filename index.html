@@ -945,31 +945,48 @@ $("#jsonin").onchange=e=>{
   r.readAsText(f); e.target.value="";
 };
 
-/* icona home screen generata al volo: monogramma nero corporate */
+/* icona home screen generata al volo: gemma sfaccettata gialla su nero, no lettere */
 (function icon(){
   try{
     const S=512, c=document.createElement("canvas"); c.width=c.height=S; const x=c.getContext("2d");
+    const cx=S*0.5;
 
-    /* fondo nero opaco con leggerissima profondità (niente colori vivaci) */
-    const bg=x.createRadialGradient(S*0.5,S*0.36,S*0.05,S*0.5,S*0.5,S*0.75);
-    bg.addColorStop(0,"#1c1c1e"); bg.addColorStop(1,"#000000");
+    /* fondo nero opaco con leggerissima profondità */
+    const bg=x.createRadialGradient(cx,S*0.40,S*0.05,cx,S*0.5,S*0.78);
+    bg.addColorStop(0,"#1a1a1a"); bg.addColorStop(1,"#000000");
     x.fillStyle=bg; x.fillRect(0,0,S,S);
 
-    /* filo sottile che definisce il bordo, coerente col resto dell'UI */
-    x.strokeStyle="rgba(255,255,255,.14)"; x.lineWidth=S*0.010;
+    /* filo sottile che definisce il bordo */
+    x.strokeStyle="rgba(255,255,255,.12)"; x.lineWidth=S*0.010;
     x.strokeRect(x.lineWidth/2,x.lineWidth/2,S-x.lineWidth,S-x.lineWidth);
 
-    /* monogramma "B" in argento/bianco, netto e istituzionale */
-    const lg=x.createLinearGradient(0,S*0.24,0,S*0.76);
-    lg.addColorStop(0,"#ffffff"); lg.addColorStop(1,"#d8d8dc");
-    x.fillStyle=lg;
-    x.font="700 "+Math.round(S*0.50)+"px -apple-system,'SF Pro Display',system-ui,sans-serif";
-    x.textAlign="center"; x.textBaseline="middle";
-    x.fillText("B",S/2,S*0.518);
+    /* punti della gemma: tavola in alto, girdle largo al centro, culet in basso */
+    const topY=S*0.230, midY=S*0.470, botY=S*0.775;
+    const topL=[cx-S*0.115,topY], topR=[cx+S*0.115,topY];
+    const midL=[cx-S*0.255,midY], midR=[cx+S*0.255,midY];
+    const bot=[cx,botY];
 
-    /* trattino sotto il monogramma, richiama l'idea di "bilancio in pareggio" */
-    x.strokeStyle="rgba(255,255,255,.55)"; x.lineWidth=S*0.018; x.lineCap="round";
-    x.beginPath(); x.moveTo(S*0.37,S*0.735); x.lineTo(S*0.63,S*0.735); x.stroke();
+    /* alone dorato soffuso dietro la gemma */
+    x.save();
+    x.shadowColor="rgba(255,214,10,.45)"; x.shadowBlur=S*0.085;
+    x.fillStyle="rgba(255,214,10,.001)";
+    x.beginPath(); x.moveTo(...topL); x.lineTo(...topR); x.lineTo(...midR); x.lineTo(...bot); x.lineTo(...midL); x.closePath(); x.fill();
+    x.restore();
+
+    /* tre sfaccettature, tono più caldo scendendo verso il basso */
+    const facet=(pts,fill)=>{
+      x.beginPath(); x.moveTo(...pts[0]);
+      for(let i=1;i<pts.length;i++) x.lineTo(...pts[i]);
+      x.closePath(); x.fillStyle=fill; x.fill();
+      x.strokeStyle="rgba(0,0,0,.45)"; x.lineWidth=S*0.006; x.stroke();
+    };
+    facet([topL,topR,midL],"#FFE066");
+    facet([topR,midR,midL],"#FFC300");
+    facet([midL,midR,bot],"#E39A00");
+
+    /* glint: riflesso netto sulla faccetta più chiara */
+    x.strokeStyle="rgba(255,255,255,.75)"; x.lineWidth=S*0.012; x.lineCap="round";
+    x.beginPath(); x.moveTo(cx-S*0.055,topY+S*0.028); x.lineTo(cx+S*0.02,topY+S*0.09); x.stroke();
 
     const l=document.createElement("link"); l.rel="apple-touch-icon"; l.href=c.toDataURL("image/png");
     document.head.appendChild(l);
