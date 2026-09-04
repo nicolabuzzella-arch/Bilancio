@@ -190,6 +190,15 @@ option{background:#16161a;color:#fff}
 .sheet .sub{color:var(--t2);font-size:13.5px;margin:0 0 16px}
 .toast{position:fixed;left:50%;bottom:calc(96px + var(--sab));transform:translate(-50%,14px);z-index:80;background:rgba(40,40,44,.90);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:11px 18px;font-size:14px;opacity:0;pointer-events:none;transition:.3s cubic-bezier(.32,.72,0,1);max-width:88vw;text-align:center}
 .toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* banner "aggiungi a Home" */
+.a2hs{position:fixed;left:12px;right:12px;bottom:calc(78px + var(--sab));z-index:70;background:var(--glass-2);border:1px solid var(--hair);border-radius:18px;padding:13px 14px;backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);display:flex;align-items:flex-start;gap:10px;box-shadow:0 12px 34px rgba(0,0,0,.42);transform:translateY(140%);transition:transform .35s cubic-bezier(.32,.72,0,1)}
+.a2hs.on{transform:translateY(0)}
+.a2hs svg{width:20px;height:20px;stroke:var(--blue);fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none;margin-top:1px}
+.a2hs p{flex:1;margin:0;font-size:13px;line-height:1.4;color:var(--t2)}
+.a2hs p b{color:var(--t1);font-weight:600}
+.a2hs button{flex:none;width:26px;height:26px;border-radius:13px;background:var(--glass);display:grid;place-items:center;color:var(--t2)}
+.a2hs button svg{width:12px;height:12px;stroke:var(--t2);margin:0}
 .hide{display:none!important}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -226,6 +235,11 @@ option{background:#16161a;color:#fff}
 <div class="scrim" id="scrim"></div>
 <div class="sheet" id="sheet"><div class="grab"></div><div id="sheetbody"></div></div>
 <div class="toast" id="toast"></div>
+<div class="a2hs hide" id="a2hs">
+  <svg viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>
+  <p>Aggiungi <b>Bilancio</b> alla schermata Home: tocca <b>Condividi</b> qui sotto, poi <b>“Aggiungi a Home”</b> — si aprirà a schermo intero, senza la barra di Safari.</p>
+  <button id="a2hsClose" aria-label="Chiudi"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+</div>
 <input type="file" id="filein" accept=".csv,text/csv,text/plain" class="hide">
 <input type="file" id="jsonin" accept=".json,application/json" class="hide">
 
@@ -957,6 +971,29 @@ $("#jsonin").onchange=e=>{
     if("serviceWorker" in navigator && location.protocol==="https:")
       navigator.serviceWorker.register("sw.js").catch(()=>{});
     if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
+  }catch(e){}
+})();
+
+/* invito "aggiungi a Home" su Safari iOS: è l'unico modo per far sparire
+   la barra degli indirizzi, iOS non lo permette dentro una scheda del browser */
+(function a2hs(){
+  try{
+    const standalone = window.navigator.standalone === true ||
+      (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    if(standalone) return;
+    const ua = navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(ua) || (ua.includes("Macintosh") && navigator.maxTouchPoints > 1);
+    const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+    if(!isIOS || !isSafari) return;
+    if(localStorage.getItem("bilancio.a2hs.dismissed")) return;
+    const el = $("#a2hs"); if(!el) return;
+    el.classList.remove("hide");
+    requestAnimationFrame(()=>requestAnimationFrame(()=>el.classList.add("on")));
+    $("#a2hsClose").onclick=()=>{
+      el.classList.remove("on");
+      try{ localStorage.setItem("bilancio.a2hs.dismissed","1"); }catch(e){}
+      setTimeout(()=>el.classList.add("hide"),350);
+    };
   }catch(e){}
 })();
 
