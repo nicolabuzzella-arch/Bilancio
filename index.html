@@ -321,6 +321,10 @@ function shiftPeriod(key,n){
 /* ---------------- stato ---------------- */
 let DB=null, TAB="over", PERIOD=null, TXFILTER="all", TXQ="", pending=null;
 
+/* mostrata in Importa: serve a capire al volo se il telefono sta usando
+   l'ultima versione o una copia vecchia rimasta in cache */
+const APP_VERSION="2026.09.04";
+
 /* regole di categorizzazione automatica: [pattern regex, gruppo, categoria].
    Usate sia per il seed di un DB nuovo sia (in boot) per aggiungere le
    regole mancanti a chi ha già un DB, senza toccare le regole personali. */
@@ -594,6 +598,8 @@ function vImp(){
       <button class="btn" id="pick">Sfoglia</button>
     </div>
     <div class="mini" style="margin-top:14px">I duplicati vengono riconosciuti in automatico, quindi puoi caricare export che si sovrappongono senza sporcare i dati. ${last?`Finora hai importato ${last} movimenti.`:""}</div>
+    ${last?`<button class="btn danger" id="wipecsv" style="margin-top:12px">Cancella i ${last} movimenti importati</button>
+    <div class="mini" style="margin-top:8px">Toglie solo ciò che è arrivato da un CSV: categorie, budget, regole e movimenti inseriti a mano restano dove sono.</div>`:""}
   </section>
 
   <section class="card">
@@ -606,6 +612,7 @@ function vImp(){
   <section class="card">
     <h2>Dove finiscono i dati</h2>
     <div class="mini" style="margin:0">Archiviazione attiva: <b>${Store.mode==="local"?"memoria locale del browser":Store.mode==="host"?"storage dell'anteprima":"solo sessione corrente"}</b>. Nessun dato viene inviato a un server: non c'è nessun server.</div>
+    <div class="mini" style="margin-top:8px;color:var(--t3)">Versione <b>${APP_VERSION}</b> · lettura nativa degli export Yuh</div>
   </section>`;
 }
 
@@ -677,17 +684,25 @@ function dat(v){
 }
 const KEYS={
   date:["date","datum","data","valuta","value date","booking","transaction date","date de","operazione"],
-  desc:["description","descrizione","activity","libell","text","buchungstext","name","merchant","details","dettagli","causale","beneficiar","note"],
+  /* dal più specifico al più generico: "activity name" prima di "activity",
+     altrimenti in un export Yuh vincerebbe "activity type", che al posto del
+     negozio scrive sigle come CARD_TRANSACTION_OUT */
+  desc:["description","descrizione","activity name","merchant","libell","buchungstext","details","dettagli","causale","beneficiar","recipient","name","text","activity","note"],
   amount:["amount","importo","betrag","montant","totale","total"],
   debit:["debit","addebito","soll","uscita","dare"],
   credit:["credit","accredito","haben","entrata","avere"],
   cur:["currency","valuta","devise","währung","ccy","moneta"]
 };
+/* una colonna che dichiara il "tipo" di movimento non è mai una descrizione */
+const isTypeHeader=h=>/\btype\b|\btipo\b|\bart\b/.test(h);
 function guess(headers){
-  const h=headers.map(x=>x.toLowerCase()); const out={};
+  const h=headers.map(x=>String(x||"").toLowerCase()); const out={};
   for(const [f,keys] of Object.entries(KEYS)){
     let idx=-1;
-    for(const k of keys){ idx=h.findIndex(x=>x.includes(k)); if(idx>-1) break; }
+    for(const k of keys){
+      idx=h.findIndex(x=>x.includes(k) && !(f==="desc"&&isTypeHeader(x)));
+      if(idx>-1) break;
+    }
     out[f]=idx;
   }
   if(out.cur===out.date) out.cur=-1;
@@ -739,14 +754,32 @@ function hashRows(rows){
 const previewRows=rowsp=>rowsp.slice(0,5).map(p=>`<tr><td>${p.date}</td><td>${esc(p.desc.slice(0,34))}</td><td>${p.amount.toFixed(2)}</td></tr>`).join("")||`<tr><td colspan="3">Nessuna riga valida con questa combinazione</td></tr>`;
 
 /* ---------------- export Yuh: formato riconosciuto, righe interpretate senza indovinare colonne ---------------- */
+/* intestazione ripulita da BOM, virgolette, spazi strani e maiuscole: Yuh
+   cambia questi dettagli tra un export e l'altro, il formato no */
+const headKey=h=>String(h||"").replace(/^﻿/,"").replace(/["']/g,"").replace(/[\s ]+/g," ").trim().toUpperCase();
 function yuhIdx(headers){
-  const H=headers.map(h=>String(h||"").trim().toUpperCase());
-  const find=name=>H.indexOf(name);
-  return {date:find("DATE"),type:find("ACTIVITY TYPE"),name:find("ACTIVITY NAME"),debit:find("DEBIT"),credit:find("CREDIT"),locality:find("LOCALITY")};
+  const H=headers.map(headKey);
+  const find=(...names)=>{
+    for(const n of names){ const i=H.indexOf(n); if(i>-1) return i; }
+    for(const n of names){ const i=H.findIndex(h=>h.includes(n)); if(i>-1) return i; }
+    return -1;
+  };
+  return {
+    date:find("DATE","DATA"),
+    type:find("ACTIVITY TYPE","TIPO DI ATTIVITÀ","TIPO ATTIVITA"),
+    name:find("ACTIVITY NAME","NOME ATTIVITÀ","NOME ATTIVITA"),
+    debit:find("DEBIT","ADDEBITO"),
+    credit:find("CREDIT","ACCREDITO"),
+    locality:find("LOCALITY","LOCALITÀ","LOCALITA"),
+    recipient:find("RECIPIENT","BENEFICIARIO"),
+    sender:find("SENDER","MITTENTE")
+  };
 }
+/* basta la colonna con il tipo di attività più data e almeno un importo:
+   è ciò che distingue l'export Yuh da un estratto conto qualsiasi */
 function isYuhFormat(headers){
   const i=yuhIdx(headers);
-  return i.date>-1&&i.type>-1&&i.name>-1&&i.debit>-1&&i.credit>-1;
+  return i.date>-1&&i.type>-1&&(i.debit>-1||i.credit>-1);
 }
 /* tipi di movimento Yuh che non sono spese/entrate reali:
    punti bonus (nessun controvalore), cambi valuta automatici/manuali per
@@ -764,7 +797,10 @@ function buildYuhRows(rows,idx){
     const credit=num(r[idx.credit]), debit=num(r[idx.debit]);
     const amount = credit!=null&&credit!==0 ? Math.abs(credit) : debit!=null&&debit!==0 ? -Math.abs(debit) : null;
     if(amount==null||amount===0) continue;
-    let desc=String(r[idx.name]||"").replace(/["]/g,"").replace(/\s+/g," ").trim();
+    const clean=v=>String(v==null?"":v).replace(/["]/g,"").replace(/\s+/g," ").trim();
+    /* se in un export futuro mancasse "ACTIVITY NAME" si ripiega su chi ha
+       ricevuto o mandato i soldi: mai sul tipo, che non descrive nulla */
+    let desc=clean(idx.name>-1?r[idx.name]:"") || clean(r[idx.recipient]) || clean(r[idx.sender]);
     if(!desc) desc = type==="INVEST_ORDER_EXECUTED" ? "Investimento" : "Movimento";
     const locality=idx.locality>-1 ? String(r[idx.locality]||"").replace(/["]/g,"").trim() : "";
     const note = locality && type.startsWith("CARD_TRANSACTION") ? locality : "";
@@ -781,19 +817,25 @@ function sheetYuhPreview(){
   const rowsp=buildYuhRows(pending.rows,idx);
   const totalRaw=pending.rows.length-1;
   const skipped=totalRaw-rowsp.length;
+  const esistenti=DB.tx.filter(t=>t.src==="csv").length;
   openSheet(`
     <h3>Export Yuh riconosciuto</h3>
-    <p class="sub">Formato rilevato in automatico: uso "Attività" per data/descrizione/importo ed escludo i movimenti che non sono spese o entrate reali (punti bonus, cambi valuta automatici, ordini rifiutati) — ${skipped} righe su ${totalRaw} scartate per questo.</p>
+    <p class="sub">Formato rilevato in automatico: leggo negozio, data e importo dalle colonne giuste ed escludo le righe che non sono spese o entrate reali (punti bonus, cambi valuta automatici, ordini rifiutati) — ${skipped} righe su ${totalRaw} scartate per questo.</p>
     <div class="prev"><table><thead><tr><th>Data</th><th>Descrizione</th><th>Importo</th></tr></thead><tbody id="pvbody">
       ${previewRows(rowsp)}
     </tbody></table></div>
     <button class="btn primary" id="doimportyuh" style="margin-top:16px">Importa <span id="cntyuh">${rowsp.length}</span> movimenti</button>
+    ${esistenti?`<button class="btn danger" id="doreimportyuh" style="margin-top:9px">Sostituisci i ${esistenti} già importati</button>
+    <div class="mini" style="margin-top:8px">Usa "Sostituisci" se un import precedente ha lasciato movimenti sbagliati: cancella solo quelli arrivati da CSV e rifà tutto da capo. Categorie, budget, regole e movimenti inseriti a mano restano.</div>`:""}
   `);
-  $("#doimportyuh").onclick=doImportYuh;
+  $("#doimportyuh").onclick=()=>doImportYuh(false);
+  const rb=$("#doreimportyuh"); if(rb) rb.onclick=()=>doImportYuh(true);
 }
-async function doImportYuh(){
+async function doImportYuh(replace){
   const idx=yuhIdx(pending.rows[0]);
   const rows=hashRows(buildYuhRows(pending.rows,idx));
+  let removed=0;
+  if(replace){ const before=DB.tx.length; DB.tx=DB.tx.filter(t=>t.src!=="csv"); removed=before-DB.tx.length; }
   const seen=new Set(DB.tx.map(t=>t.hash));
   let added=0,dup=0;
   for(const r of rows){
@@ -806,7 +848,7 @@ async function doImportYuh(){
   pending=null;
   if(added){ const dates=DB.tx.map(t=>t.date).sort(); PERIOD=periodOf(dates[dates.length-1]); }
   await save(); closeSheet(); TAB="tx"; TXFILTER="all"; render();
-  toast(`${added} movimenti importati${dup?` · ${dup} duplicati ignorati`:""}`);
+  toast(`${added} movimenti importati${removed?` · ${removed} sostituiti`:""}${dup?` · ${dup} duplicati ignorati`:""}`);
 }
 
 function handleFile(file){
@@ -1023,6 +1065,15 @@ function wire(){
     await save(); render(); toast(`${n} movimenti aggiornati`);
   };
   const pk=$("#pick"); if(pk) pk.onclick=()=>$("#filein").click();
+  const wc=$("#wipecsv"); if(wc) wc.onclick=()=>{
+    const n=DB.tx.filter(t=>t.src==="csv").length;
+    sheetConfirm("Cancello i movimenti importati?",
+      `${n} movimenti arrivati da CSV vengono rimossi. Categorie, budget, regole e movimenti aggiunti a mano restano.`,
+      "Cancella e basta", async()=>{
+        DB.tx=DB.tx.filter(t=>t.src!=="csv");
+        await save(); render(); toast(`${n} movimenti rimossi`);
+      });
+  };
   const dz=$("#drop");
   if(dz){
     ["dragenter","dragover"].forEach(v=>dz.addEventListener(v,e=>{e.preventDefault();dz.classList.add("over");}));
